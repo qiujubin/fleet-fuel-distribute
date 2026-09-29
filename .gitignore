@@ -1,0 +1,20 @@
+# ===== 运行时备份（体积大，不入库）=====
+backup_*/
+backup_20260919/
+backup_fix448/
+backup_daily/
+
+# ===== 考核表历史快照（旧版留档，约 28MB）=====
+kaohe_before_*.xlsm
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+
+# ===== WPS/Excel 临时锁文件 =====
+~$*
+*.bak
+*.bak_*
+
+# ===== 运行时状态（每天变化，无版本意义）=====
+state/
