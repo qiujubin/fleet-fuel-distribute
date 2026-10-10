@@ -54,8 +54,12 @@ def check_file(app, fp):
             t = cell[0] if isinstance(cell, tuple) else cell
             if not isinstance(t, str): continue
             nums = [int(x) for x in re.findall(r'\+I(\d+)', t)]
+            mul = re.findall(r'(?:\*[IJ]\d+|[IJ]\d+\*)', t)   # 乘号误连（应为 +）→ 会把整列乘成 0
             extra = sorted(set(nums) - set(exp))
-            if extra:
+            if mul:
+                major.append((os.path.basename(fp), r, len(nums), len(exp),
+                              f'乘号误连(应为+): {" ".join(mul[:4])}'))
+            elif extra:
                 major.append((os.path.basename(fp), r, len(nums), len(exp),
                               f'多出周期外行 {extra[:5]}' + ('...' if len(extra) > 5 else '')))
             elif len(nums) < len(exp):
