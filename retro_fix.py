@@ -182,18 +182,23 @@ try:
         except Exception: pass
         rng = ws1.Range(ws1.Cells(new_r, 6), ws1.Cells(new_r, 22)).Value2
         v = rng[0] if isinstance(rng[0], tuple) else rng
+        hrng = ws1.Range(ws1.Cells(new_r, 1), ws1.Cells(new_r, 5)).Value2   # A~E: 编号/序号/司机/车牌/类型
+        h = hrng[0] if isinstance(hrng[0], tuple) else hrng
         w1.Save(); w1.Close(False)
         print(f'  新行 {new_r} ({new_sid}): I={_num(v[3])} J={_num(v[4])} P={_num(v[10])}')
 
         # 2.4 考核表: 就地替换（old_sid 行 -> new_sid）
+        # 目标 sheet 按文件名判定 —— 尿素文件进「每日尿素数据」，否则进「每日油耗数据」
+        # （2026-10-14 修 bug：原来写死「每日油耗数据」，尿素记录被错写进去）
+        SHEET = '每日尿素数据' if '尿素' in fn else '每日油耗数据'
         wbk = app.Workbooks.Open(KAOHE, 0, False)
-        wsd2 = wbk.Worksheets('每日油耗数据')
+        wsd2 = wbk.Worksheets(SHEET)
         old_row_kao = None
         for i in range(2, 6000):
             x = wsd2.Cells(i, 1).Value2
             if x is not None and str(x).strip().rstrip('.0') == old_sid:
                 old_row_kao = i; break
-        new_rowvals = [new_sid, None, None, None, None, v[0], v[1], '是', _num(v[3]), _num(v[4]), None,
+        new_rowvals = [new_sid, None, None, None, None, v[0], v[1], '是', _num(v[3]), _num(v[4]), _num(v[5]),
                        _num(v[6]), _num(v[7]), _num(v[8]), _num(v[9]), _num(v[10]), _num(v[11]),
                        _num(v[12]), _num(v[13]), _num(v[14]), _num(v[15]), _num(v[16]),
                        float(int(v[1])), 0]
@@ -205,14 +210,19 @@ try:
             wsd2.Range(wsd2.Cells(old_row_kao, 1), wsd2.Cells(old_row_kao, 24)).Value = tuple([tuple(new_rowvals)])
             for c in (6, 7): wsd2.Cells(old_row_kao, c).NumberFormat = DT_FMT
             wsd2.Cells(old_row_kao, 23).NumberFormat = 'yyyy-mm-dd'
-            print(f'  考核表行{old_row_kao}: {old_sid} -> {new_sid}')
+            print(f'  考核表[{SHEET}]行{old_row_kao}: {old_sid} -> {new_sid}')
         else:
             last = true_last_row(wsd2, 1)
             nr = max(last, 1) + 1
             new_rowvals[1] = nr - 1
+            new_rowvals[2] = h[2]      # 司机
+            new_rowvals[3] = h[3]      # 车牌
+            new_rowvals[4] = h[4]      # 类型
             wsd2.Cells(nr, 1).NumberFormat = '@'
             wsd2.Range(wsd2.Cells(nr, 1), wsd2.Cells(nr, 24)).Value = tuple([tuple(new_rowvals)])
-            print(f'  考核表追加行{nr}: {new_sid}')
+            for c in (6, 7): wsd2.Cells(nr, c).NumberFormat = DT_FMT
+            wsd2.Cells(nr, 23).NumberFormat = 'yyyy-mm-dd'
+            print(f'  考核表[{SHEET}]追加行{nr}: {new_sid} (车牌={h[3]})')
         wbk.Save(); wbk.Close(False)
 
         # 2.5 汇总: 删旧行（车牌 + 时间A + 时间B 匹配）
