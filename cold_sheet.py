@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 """把接口的「打冷记录」同步进考核表「打冷记录」sheet。
 
-两层去重：
+三层过滤：
+  ⓪ 超长记录 —— 打冷时长 > MAX_LEN_MIN（默认 1440 分钟 = 24 小时）直接跳过、不入库
+     这类基本是「配送过程中排队/长期停放」被系统记成一次打冷（如 6240/3060/2220 分钟），
+     不是司机真实打冷时长，进表会污染统计。跳过的记录会在终端和报告里逐条列出。
+     可用 --max-min 改阈值，或 --no-max 关闭该过滤。
   ① 记录编号(scid) 去重 —— 编号已存在则跳过（历史遗留的重复编号不动）
   ② 内容去重 —— 抓「我在系统/本地写了，司机后补上传了一次」的重复：
        车牌相同 + 司机相同 + 打冷时长相同
@@ -25,6 +29,8 @@ sheet 结构（实测）:
   python cold_sheet.py --check         # 只看会做什么，不写入
   python cold_sheet.py --sim 0.6       # 调备注相似度阈值（默认 0.5）
   python cold_sheet.py --tol 0         # 调日期容忍天数（默认 1）
+  python cold_sheet.py --max-min 2880  # 放宽超长阈值到 48 小时（默认 1440 分钟）
+  python cold_sheet.py --no-max        # 关闭超长过滤（全部按时长入库）
 """
 import os, re, sys, json, datetime, difflib, urllib.request
 from collections import defaultdict
@@ -37,6 +43,7 @@ NCOL = 8                     # 只写前 8 列
 
 DUP_DAY_TOL = 1              # 内容去重：日期容忍（天）
 DUP_REMARK_TH = 0.5          # 内容去重：备注相似度阈值
+MAX_LEN_MIN = 1440           # 超长过滤：打冷时长上限（分钟），超过视为排队/停放异常记录
 SYS_ID_RE = re.compile(r'^\d{12}$')   # 系统编号形态（12 位数字）
 
 
@@ -172,12 +179,14 @@ def build_index(table):
     return index
 
 
-def dedup_plan(rows, table, tol_days=DUP_DAY_TOL, sim_th=DUP_REMARK_TH):
-    """把接口记录分成四类（纯函数，便于测试）。
+def dedup_plan(rows, table, tol_days=DUP_DAY_TOL, sim_th=DUP_REMARK_TH,
+               max_len=None, too_long_out=None):
+    """把接口记录分成几类（纯函数，便于测试）。
 
     返回 (编号已存在, 与表内重复, 批次内重复, 需新增, 表内那条无系统编号的提醒)
       与表内重复: (新记录, 表内已有记录, 日期差, 相似度, 表内行号)
       批次内重复: (新记录, 保留的记录, 日期差, 相似度)
+    max_len: 打冷时长上限（分钟），超过的记录不进入新增；传入 too_long_out 列表可收集这些记录
     """
     exist = {clean_sid(r[0]) for _, r in table if clean_sid(r[0])}
     index = build_index(table)
@@ -185,6 +194,10 @@ def dedup_plan(rows, table, tol_days=DUP_DAY_TOL, sim_th=DUP_REMARK_TH):
     n_exist, dup_a, dup_b, accepted, no_id_warn = [], [], [], [], []
     acc_index = defaultdict(list)
     for r in rows:
+        if max_len is not None and _is_num(r[6]) and float(r[6]) > max_len:
+            if too_long_out is not None:
+                too_long_out.append(r)
+            continue
         if r[0] in exist:
             n_exist.append(r)
             continue
@@ -221,6 +234,7 @@ def main():
     days = opt('--days', int, None)
     tol = opt('--tol', int, DUP_DAY_TOL)
     sim_th = opt('--sim', float, DUP_REMARK_TH)
+    max_len = None if '--no-max' in args else opt('--max-min', float, MAX_LEN_MIN)
 
     cfg = load_cfg()
     days = days or cfg.get('days', 3)
@@ -264,10 +278,18 @@ def main():
             print(f'  「{SHEET}」现有数据行: {max(last - 1, 0)}（末行 {last}）')
 
             table = _read_table(ws, last, NCOL)
+            too_long = []
             n_exist, dup_a, dup_b, accepted, no_id_warn = \
-                dedup_plan(rows, table, tol, sim_th)
+                dedup_plan(rows, table, tol, sim_th, max_len, too_long)
             print(f'  现有编号 {len({clean_sid(r[0]) for _, r in table if clean_sid(r[0])})} 个')
 
+            if max_len is not None:
+                print(f'  超长跳过     : {len(too_long)} 条（打冷时长 > {_fmt_len(max_len)} 分钟）')
+                for r in too_long:
+                    print(f'     ⏭ {r[0]} {r[1]} {r[2]} 时长 {_fmt_len(r[6])} 分钟 '
+                          f'司机={r[3]} | {r[7][:36]}')
+                if too_long:
+                    print('       → 疑似「排队/长期停放」，已不入库；如属真实打冷请用 --max-min 放宽')
             print(f'  编号已存在跳过: {len(n_exist)} 条')
             print(f'  内容重复跳过 : {len(dup_a) + len(dup_b)} 条'
                   f'（表内已有 {len(dup_a)} / 本次批次内 {len(dup_b)}）')
@@ -304,7 +326,8 @@ def main():
                 if len(accepted) > 10:
                     print(f'     ...（共 {len(accepted)} 条）')
 
-            _write_report(check, days, rows, n_exist, dup_a, dup_b, accepted, tol, sim_th)
+            _write_report(check, days, rows, n_exist, dup_a, dup_b, accepted,
+                          tol, sim_th, too_long, max_len)
 
             if check:
                 print('  (--check 模式，不写入)'); return 0
@@ -357,17 +380,27 @@ def _read_table(ws, last, ncol):
     return out
 
 
-def _write_report(check, days, rows, n_exist, dup_a, dup_b, accepted, tol, sim_th):
+def _write_report(check, days, rows, n_exist, dup_a, dup_b, accepted, tol, sim_th,
+                  too_long=None, max_len=None):
     """把本次判重结果留档到 outputs/（不入库）"""
+    too_long = too_long or []
     try:
         out_dir = os.path.join(HERE, 'outputs')
         os.makedirs(out_dir, exist_ok=True)
         fp = os.path.join(out_dir, '打冷同步报告_%s.txt' % datetime.date.today().strftime('%Y-%m-%d'))
         lines = [f"打冷记录同步报告  {datetime.datetime.now():%Y-%m-%d %H:%M:%S}",
                  f"接口 {days} 天: {len(rows)} 条 | 编号已存在: {len(n_exist)} | "
-                 f"内容重复跳过: {len(dup_a) + len(dup_b)} | 新增: {len(accepted)}"
+                 f"内容重复跳过: {len(dup_a) + len(dup_b)} | 超长跳过: {len(too_long)} | "
+                 f"新增: {len(accepted)}"
                  f"{'  (--check 未写入)' if check else ''}",
-                 f"判据: 车牌+司机+时长相同 且 日期差<={tol}天 且 备注相似度>={sim_th}", '']
+                 f"判据: 车牌+司机+时长相同 且 日期差<={tol}天 且 备注相似度>={sim_th}"
+                 + (f" | 超长阈值 >{_fmt_len(max_len)}分钟" if max_len else ""), '']
+        if too_long:
+            lines.append(f'【超长记录 → 不入库（>{_fmt_len(max_len)} 分钟）】')
+            for r in too_long:
+                lines.append(f"  跳过 {r[0]} {r[1]} {r[2]} 时长{_fmt_len(r[6])} "
+                             f"司机={r[3]} | 备注: {r[7]}")
+            lines.append('')
         if dup_a:
             lines.append('【与表内已有记录重复 → 保留表内那条】')
             for r, other, dd, s, ln in dup_a:
