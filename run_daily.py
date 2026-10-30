@@ -11,6 +11,7 @@
                                   ② 内容重复（车牌+司机+时长相同、日期相差≤1天、备注相似≥0.5）
                                      → 判定为「司机后补上传」，跳过并保留表内已有那条
   ⑤ sort_fuel_sheets.py 收尾：4 张油耗页面「大排序」；当天第一次会先「速度图片清零」
+  ⑥ cleanup_backups.py  清理过期备份：各类 backup_* 只保留最近 3 天
 
 用法：python run_daily.py                 # ⓪ 自动取数（推荐）
       python run_daily.py <导出文件路径>   # 跳过 ⓪，用指定/手里已有的导出文件
@@ -72,6 +73,10 @@ def main():
     # ⑤ 收尾：4 张油耗页面「大排序」（当天第一次会先「速度图片清零」）
     print('=' * 24, '⑤ 油耗页面排序', '=' * 24)
     run('sort_fuel_sheets.py')
+
+    # ⑥ 备份清理：各类 backup_* 只保留最近 3 天（backup_daily 的 latest 不动）
+    print('=' * 24, '⑥ 清理过期备份', '=' * 24)
+    run('cleanup_backups.py', ['--apply'])
 
     print('\n完成：全流程结束')
     return rc1

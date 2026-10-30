@@ -351,6 +351,20 @@ else:
             n_bak += 1
         print(f'每日备份完成 -> {BACKUP} ({n_bak} 模板 + 考核表 + 汇总, 覆盖同名文件/保留至下次运行)')
 
+        # ---------- 历史快照: 按日期留一份, 便于回退(cleanup_backups 只保留最近 3 天) ----------
+        hist = os.path.join(BACKUP, 'history', datetime.date.today().isoformat())
+        hist_tpl = os.path.join(hist, '车辆油耗计算模板')
+        try:
+            os.makedirs(hist_tpl, exist_ok=True)
+            for p in by_path:
+                shutil.copy2(p, os.path.join(hist_tpl, os.path.basename(p)))
+            shutil.copy2(KAOHE, os.path.join(hist, os.path.basename(KAOHE)))
+            if os.path.exists(SUMMARY):
+                shutil.copy2(SUMMARY, os.path.join(hist, os.path.basename(SUMMARY)))
+            print(f'历史快照 -> {hist}')
+        except Exception as e:
+            print(f'  (历史快照失败, 不影响主流程: {e})')
+
         # ---------- 6. 车辆模板 ----------
         for path in sorted(by_path):
             items = by_path[path]
