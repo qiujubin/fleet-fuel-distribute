@@ -21,6 +21,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TPL_DIR = r'C:\Users\Jubin\Desktop\车辆维修，油耗\车辆油耗计算模板'
 KAOHE = r'C:\Users\Jubin\Desktop\车辆维修，油耗\油耗考核10月_宏.xlsm'
 SNAP_DIR = os.path.join(HERE, 'backup_daily', '车辆油耗计算模板')
+_APP = None
 
 
 def disp(v):
@@ -33,16 +34,35 @@ def sheet_rows(path, sheet):
 
 
 def com_app():
+    """复用同一个 COM 实例 —— 反复 Quit/CoInitialize 会导致第二次 Open 报「接口未知」"""
+    global _APP
+    if _APP is not None:
+        return _APP
     pythoncom.CoInitialize()
     for pid in ('Ket.Application', 'et.Application'):
         try:
             app = wc.DispatchEx(pid)
             app.Visible = False
             app.DisplayAlerts = False
+            _APP = app
             return app
         except Exception:
             continue
     raise SystemExit('无法启动 WPS COM')
+
+
+def quit_app():
+    global _APP
+    if _APP is not None:
+        try:
+            _APP.Quit()
+        except Exception:
+            pass
+        _APP = None
+    try:
+        pythoncom.CoUninitialize()
+    except Exception:
+        pass
 
 
 def main():
@@ -109,14 +129,12 @@ def main():
 
     # ---------- 1. 改导出单价 ----------
     app = com_app()
-    try:
-        wb = app.Workbooks.Open(a.export, 0, False)
-        ws = wb.Worksheets(1)
-        ws.Cells(exp_row, 8).Value = a.price
-        wb.Save()
-        wb.Close(False)
-    finally:
-        app.Quit(); pythoncom.CoUninitialize()
+    wb = app.Workbooks.Open(a.export, 0, False)
+    ws = wb.Worksheets(1)
+    ws.Cells(exp_row, 8).Value = a.price
+    wb.Save()
+    wb.Close(False)
+    # 不 Quit：后面删行还要用同一个实例
 
     chk = sheet_rows(a.export, CalamineWorkbook.from_path(a.export).sheet_names[0])
     v = float(chk[exp_row - 1][7])
@@ -150,7 +168,7 @@ def main():
             wb.Save()
             wb.Close(False)
         finally:
-            app.Quit(); pythoncom.CoUninitialize()
+            quit_app()
         chk3 = sheet_rows(KAOHE, '每日尿素数据')
         still = any(i > 1 and r and disp(r[0]) == a.sid for i, r in enumerate(chk3, 1))
         print('  每日尿素数据 删行%d: %s' % (row, '✗ 仍存在' if still else '✓ 已落盘'))
