@@ -29,6 +29,7 @@ DATA_DIR  = os.environ.get('FUEL_DATA_DIR', r'C:\Users\Jubin\Desktop\数据')
 TPL_DIR   = os.environ.get('FUEL_TPL_DIR',  r'C:\Users\Jubin\Desktop\车辆维修，油耗\车辆油耗计算模板')
 KAOHE     = os.environ.get('FUEL_KAOHE',    r'C:\Users\Jubin\Desktop\车辆维修，油耗\油耗考核10月_宏.xlsm')
 BACKUP    = os.environ.get('FUEL_BACKUP',   r'E:\WorkSpace\workbuddy\2026-09-18-16-38-15\backup_daily')
+SUMMARY   = os.environ.get('FUEL_SUMMARY',  r'C:\Users\Jubin\Desktop\源数据\油耗分析汇总.xlsm')
 DT_FMT, D_FMT = 'yyyy-mm-dd hh:mm:ss', 'yyyy-mm-dd'
 EXCLUDE_KW = ['发动机', '发电机', '小油箱', '新车']
 MIN_FREE_ROWS = 15            # 骨架余量下限(每消耗一行立刻补一行, 余量恒定)
@@ -344,7 +345,11 @@ else:
         for p in by_path:
             shutil.copy2(p, os.path.join(bak_tpl, os.path.basename(p))); n_bak += 1
         shutil.copy2(KAOHE, os.path.join(BACKUP, os.path.basename(KAOHE)))
-        print(f'每日备份完成 -> {BACKUP} ({n_bak} 模板 + 考核表, 覆盖同名文件/保留至下次运行)')
+        # 汇总表也留快照：它常被 WPS 开着，旧副本保存会覆盖新数据（2026-10-30 踩过）
+        if os.path.exists(SUMMARY):
+            shutil.copy2(SUMMARY, os.path.join(BACKUP, os.path.basename(SUMMARY)))
+            n_bak += 1
+        print(f'每日备份完成 -> {BACKUP} ({n_bak} 模板 + 考核表 + 汇总, 覆盖同名文件/保留至下次运行)')
 
         # ---------- 6. 车辆模板 ----------
         for path in sorted(by_path):
