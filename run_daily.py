@@ -36,10 +36,34 @@ def run(script, args=()):
     return out, r.returncode
 
 
+def kill_orphan_wps():
+    """清理无主窗口的 WPS/ET 残留实例。
+
+    每次 COM 跑完多少会留下几个后台实例，累积几天后会让「考核表被占用」，
+    导致整条流程在预检阶段就被拦下。这里只杀 MainWindowHandle=0 的，
+    用户正在编辑的窗口（有标题/HWND）一律不动。返回清理个数。
+    """
+    ps = ("$p = @(Get-Process wps,et -ErrorAction SilentlyContinue | "
+          "Where-Object { $_.MainWindowHandle -eq 0 }); "
+          "if ($p.Count -gt 0) { $p | Stop-Process -Force -ErrorAction SilentlyContinue }; "
+          "$p.Count")
+    try:
+        r = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', ps],
+                           capture_output=True, text=True, timeout=30)
+        tail = (r.stdout or '').strip().splitlines()
+        return int(tail[-1]) if tail and tail[-1].strip().isdigit() else 0
+    except Exception:
+        return 0
+
+
 def main():
     argv = [a for a in sys.argv[1:] if not a.startswith('--')]
     export = argv[0] if argv else None
     no_fetch = '--no-fetch' in sys.argv
+
+    n_orphan = kill_orphan_wps()
+    if n_orphan:
+        print(f'[预清理] 关闭 {n_orphan} 个无窗口的 WPS 残留实例（不影响正在编辑的窗口）')
 
     # ⓪ 取数：从接口生成当天的加油表格（未指定导出文件时才跑）
     if export or no_fetch:
