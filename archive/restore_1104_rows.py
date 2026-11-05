@@ -26,7 +26,7 @@ NEED = {
     "261104000130": "京HPN783",
     "261104000128": "粤B61HY1",
 }
-NCOL = 22
+NCOL = 24   # 必须写满 24 列：第 23 列是「日期」，漏了透视表会归到(空白)
 
 
 def find_tpl(plate):
@@ -116,6 +116,9 @@ def main():
                     ws.Cells(row, c).Value2 = v
                 else:
                     ws.Cells(row, c).Value = v
+            # 第 23 列「日期」必须单独补：漏写 -> 透视表归到(空白) -> 区域表显示当日未加油
+            ws.Cells(row, 23).NumberFormat = 'yyyy-mm-dd'
+            ws.Cells(row, 23).Value2 = int(g)
         wb.Save()
         print(f"已追加 {len(todo)} 行（{start} ~ {start+len(todo)-1}）")
         wb.Close(False)
